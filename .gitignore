@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# PRIVADO: cookies y sesión del navegador (NUNCA subir)
+data/browser_profile/
+
+# Capturas de depuración
+data/debug/
+
+# Resultados con datos de personas reales (comentarios, perfiles)
+data/*/
+!data/.gitkeep
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
