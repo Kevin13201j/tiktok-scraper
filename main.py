@@ -13,6 +13,8 @@ import json
 import os
 from dataclasses import asdict
 
+from personality import analyze, print_summary
+from report import generate_html, open_in_browser
 from scraper import TikTokScraper
 
 
@@ -48,6 +50,8 @@ def main():
     p.add_argument("--comments", type=int, default=20, help="comentarios por video (default 20)")
     p.add_argument("--headless", action="store_true", help="sin ventana (más fácil de bloquear)")
     p.add_argument("--out", default="data", help="carpeta de salida (default data)")
+    p.add_argument("--bigfive", action="store_true", help="estimar Big Five con la API gratuita de Gemini")
+    p.add_argument("--no-report", action="store_true", help="no generar ni abrir el reporte visual")
     args = p.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -57,6 +61,13 @@ def main():
     base = args.username.lstrip("@")
     folder = os.path.join(args.out, base)
     os.makedirs(folder, exist_ok=True)
+    if args.bigfive:
+        try:
+            profile.personality = analyze(asdict(profile))
+        except Exception as e:  # no perder el scraping si falla el análisis
+            profile.notes.append(f"No se pudo hacer el análisis Big Five: {e}")
+            print(f"[!] Big Five no disponible: {e}")
+
     save_json(profile, os.path.join(folder, "profile.json"))
     save_csvs(profile, folder)
 
@@ -73,9 +84,15 @@ def main():
         print(f"  {i:>2}. vistas={v.views} likes={v.likes} "
               f"comentarios_total={v.comments_count} extraídos={len(v.comments)} | {desc}")
     print(f"Comentarios extraídos: {sum(len(v.comments) for v in profile.videos)}")
+    if profile.personality:
+        print_summary(profile.personality)
     for n in profile.notes:
         print(f"[nota] {n}")
     print(f"\nArchivos guardados en: {folder}/")
+    if not args.no_report:
+        report_path = generate_html(asdict(profile), os.path.join(folder, "reporte.html"))
+        print(f"Reporte visual: {report_path}")
+        open_in_browser(report_path)
 
 
 if __name__ == "__main__":
