@@ -50,3 +50,4 @@ class Profile:
     videos: List[Video] = field(default_factory=list)
     scraped_at: Optional[str] = None
     notes: List[str] = field(default_factory=list)  # avisos sobre lo que no se pudo obtener
+    personality: Optional[dict] = None  # análisis Big Five (opcional, ver personality.py)
