@@ -16,11 +16,12 @@ de TikTok y los guarda en archivos **JSON** y **CSV**.
 7. [Resultados que genera](#7-resultados-que-genera)
 8. [Cómo funciona por dentro](#8-cómo-funciona-por-dentro)
 9. [Explicación de cada archivo](#9-explicación-de-cada-archivo)
-10. [Limitaciones](#10-limitaciones)
-11. [Solución de problemas](#11-solución-de-problemas)
-12. [Aviso legal y ético](#12-aviso-legal-y-ético)
-13. [Mejoras posibles](#14-mejoras-posibles)
-
+10. [Análisis Big Five (extensión)](#10-análisis-big-five-extensión)
+11. [Limitaciones](#11-limitaciones)
+12. [Solución de problemas](#12-solución-de-problemas)
+13. [Aviso legal y ético](#13-aviso-legal-y-ético)
+14. [Guía rápida para la exposición](#14-guía-rápida-para-la-exposición)
+15. [Mejoras posibles](#15-mejoras-posibles)
 
 ---
 
@@ -44,8 +45,8 @@ archivos que se pueden abrir con Excel o analizar con otros programas.
 | Likes totales y cantidad de videos | Sí | Datos extra del perfil |
 | Últimos 10 TikToks | Sí | Enlace, descripción, fecha, duración |
 | Vistas, likes, comentarios y compartidos de cada video | Sí | Se leen de la página de cada video |
-| Comentarios de cada video | Parcial | Depende de lo que TikTok cargue (ver sección 10) |
-| **Notificaciones** | **No** | Son privadas (ver sección 10) |
+| Comentarios de cada video | Parcial | Depende de lo que TikTok cargue (ver sección 11) |
+| **Notificaciones** | **No** | Son privadas (ver sección 11) |
 
 ---
 
@@ -72,6 +73,9 @@ tiktok-scraper/
 ├── main.py            # Punto de entrada: recibe argumentos, guarda resultados, muestra resumen
 ├── scraper.py         # Lógica del scraping con Playwright
 ├── models.py          # Estructura de los datos (Profile, Video, Comment)
+├── report.py          # Genera el reporte visual reporte.html
+├── personality.py     # Análisis Big Five con la API gratuita de Gemini
+├── .env.example       # Ejemplo para guardar la clave (la real va en .env, NO se sube)
 ├── requirements.txt   # Dependencias (solo playwright)
 ├── README.md          # Este documento
 └── data/              # Resultados, capturas de depuración y perfil del navegador (browser_profile)
@@ -125,6 +129,8 @@ Escribe el usuario **sin** el `@`.
 | `--comments` | Comentarios máximos por video | 20 |
 | `--headless` | Ejecutar sin ventana visible | desactivado |
 | `--out` | Carpeta de salida | `data` |
+| `--bigfive` | Estimar el perfil Big Five (necesita clave de Gemini, ver sección 10) | desactivado |
+| `--no-report` | No generar ni abrir el reporte visual | desactivado |
 
 **Recomendaciones al ejecutar**
 
@@ -146,8 +152,22 @@ Para el usuario `ejemplo` se crea la carpeta `data/ejemplo/` con:
 | `profile.json` | Todo junto: perfil + videos + comentarios + notas |
 | `videos.csv` | Una fila por video (abre bien en Excel) |
 | `comments.csv` | Una fila por comentario; la columna `video_id` lo relaciona con su video |
+| `reporte.html` | **Reporte visual**: perfil, estadísticas, gráfico de vistas y detalle de cada video con sus comentarios |
 
-Al terminar, el programa imprime un resumen en pantalla:
+### Reporte visual
+
+Al terminar, el programa genera `reporte.html` y lo abre en el navegador. También
+puedes generarlo **sin volver a hacer scraping** a partir de un `profile.json` ya guardado:
+
+```bash
+python report.py data/usuario/profile.json
+```
+
+Para no generarlo automáticamente usa `--no-report`.
+
+### Resumen en pantalla
+
+Al terminar, el programa imprime un resumen en la consola:
 
 ```
 === RESUMEN ===
@@ -293,11 +313,115 @@ cierra solo al salir, aunque ocurra un error.
 
 ### `main.py`: ¿cómo se usa?
 Lee los argumentos de la consola (`argparse`), llama al scraper, guarda los
-archivos JSON y CSV y muestra el resumen.
+archivos JSON y CSV, muestra el resumen y genera el reporte visual.
+
+### `personality.py`: ¿cómo se estima la personalidad?
+Toma la biografía y las descripciones de los videos, las envía a la API de Gemini con un
+prompt que pide el Big Five en formato JSON, valida la respuesta (puntajes de 0 a 100) y la
+guarda en `profile.json` dentro del campo `personality`. Ver sección 10.
+
+### `report.py`: ¿cómo se muestra?
+Convierte el `profile.json` en una página HTML autocontenida (sin librerías
+externas): tarjetas de estadísticas, gráfico de barras con las vistas de cada
+video y la lista de videos con sus comentarios desplegables. Todo el texto se
+escapa (`html.escape`) para que un comentario con símbolos no rompa la página.
 
 ---
 
-## 10. Limitaciones
+## 10. Análisis Big Five (extensión)
+
+### ¿Qué es el Big Five?
+Es el modelo de personalidad más usado en psicología. Describe a una persona con cinco rasgos
+(sigla **OCEAN**), cada uno en una escala de bajo a alto:
+
+| Rasgo | Alto significa… | Bajo significa… |
+|---|---|---|
+| **O**penness (Apertura a la experiencia) | Curiosidad, creatividad, gusto por lo nuevo | Preferencia por lo conocido y lo práctico |
+| **C**onscientiousness (Responsabilidad) | Orden, disciplina, constancia | Espontaneidad, flexibilidad |
+| **E**xtraversion (Extraversión) | Sociabilidad, energía, expresividad | Reserva, preferencia por la calma |
+| **A**greeableness (Amabilidad) | Empatía, cooperación, confianza | Competitividad, escepticismo |
+| **N**euroticism (Neuroticismo) | Más sensibilidad al estrés y emociones negativas | Estabilidad emocional |
+
+### ¿Qué textos se analizan?
+La **biografía** y las **descripciones de los videos** de la cuenta, porque son textos que escribe
+el dueño de la cuenta. **No se usan los comentarios**: los escribe la audiencia, y mezclarlos
+atribuiría a la cuenta rasgos de otras personas.
+
+### ¿Cómo funciona?
+1. Se juntan los textos de la cuenta (`build_corpus`).
+2. Se envían a **Gemini** con instrucciones claras: puntuar de 0 a 100, citar evidencia, no hacer
+   diagnósticos y declarar su nivel de confianza (`SYSTEM_PROMPT`).
+3. La respuesta llega en JSON y se **valida** (`_parse`): los puntajes se limitan a 0-100 y el
+   nivel (bajo/medio/alto) se recalcula a partir del puntaje.
+4. El resultado se guarda en `profile.json` y se muestra como una tarjeta en `reporte.html`.
+
+### ¿Por qué un modelo de lenguaje (LLM)?
+Los modelos clásicos entrenados para Big Five suelen funcionar solo en inglés y con textos largos.
+Un LLM entiende español, emojis y contexto, y además explica **por qué** da cada puntaje.
+
+### Cómo obtener la clave gratuita (token)
+1. Entra a **aistudio.google.com** con tu cuenta de Google.
+2. Pulsa **Get API key** y crea una clave. No requiere tarjeta de crédito.
+3. Guárdala **sin escribirla en el código**, de una de estas dos formas:
+
+```powershell
+# Opción A: solo para la ventana actual de PowerShell
+$env:GEMINI_API_KEY="tu_clave"
+```
+```
+# Opción B: crear un archivo .env en la carpeta del proyecto con esta línea
+GEMINI_API_KEY=tu_clave
+```
+
+> **Seguridad:** la clave es personal. El archivo `.env` está en `.gitignore` para que nunca se
+> suba a GitHub. Si la subes por error, bórrala en AI Studio y crea otra.
+
+### Uso
+```bash
+# Dentro del flujo completo (scraping + Big Five + reporte)
+python main.py usuario --bigfive
+
+# Sobre datos ya guardados, sin repetir el scraping
+python personality.py data/usuario/profile.json
+```
+
+Los nombres de los modelos de Gemini cambian con frecuencia. El programa consulta a la API los
+modelos disponibles y prueba hasta 4. Si quieres fijar uno, define `GEMINI_MODEL`:
+
+```powershell
+$env:GEMINI_MODEL="nombre-del-modelo"
+```
+
+### Ejemplo de resultado (en `profile.json`)
+```json
+"personality": {
+  "traits": {
+    "conscientiousness": {
+      "score": 81, "level": "alto",
+      "evidence": ["Habla de trabajo y disciplina"],
+      "explanation": "Enfoque constante en el esfuerzo."
+    }
+  },
+  "summary": "Perfil público orientado al esfuerzo y la gratitud.",
+  "confidence": "media",
+  "limitations": ["Pocos textos"]
+}
+```
+
+### Limitaciones del análisis (importante para la exposición)
+- **No es un test psicológico ni un diagnóstico.** Es una estimación orientativa hecha por una IA.
+- **Poco texto = poca fiabilidad.** Diez descripciones cortas son muy pocas palabras. Si hay menos de
+  150 palabras, el programa fuerza la confianza a "baja". Con más videos (`--videos 30`) mejora.
+- **Mide la imagen pública, no la persona.** Las cuentas de figuras públicas suelen ser gestionadas
+  por un equipo de comunicación.
+- **El modelo puede equivocarse o ser sesgado.** Por eso se pide evidencia y se declara la confianza.
+- **Privacidad:** según la documentación de Google, el uso gratuito de la API puede servir para
+  mejorar sus productos. Solo se envían textos públicos de la cuenta, nunca datos privados.
+- **Ética:** no uses este análisis para juzgar, acosar o tomar decisiones sobre personas reales.
+
+---
+
+## 11. Limitaciones
 
 - **Notificaciones: no se pueden obtener.** Son privadas, pertenecen a una
   sesión iniciada y TikTok no las muestra en perfiles públicos. El campo
@@ -315,7 +439,7 @@ archivos JSON y CSV y muestra el resumen.
 
 ---
 
-## 11. Solución de problemas
+## 12. Solución de problemas
 
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
@@ -330,7 +454,7 @@ archivos JSON y CSV y muestra el resumen.
 
 ---
 
-## 12. Aviso legal y ético
+## 13. Aviso legal y ético
 
 - Los términos de uso de TikTok restringen el scraping automatizado.
 - Usa este proyecto **solo con fines educativos**, con **cuentas públicas** y
@@ -341,8 +465,62 @@ archivos JSON y CSV y muestra el resumen.
 - Los datos se guardan solo en tu computador.
 
 ---
-## 13. Mejoras posibles
 
+## 14. Guía rápida para la exposición
+
+**¿Qué hace el proyecto?**
+Extrae automáticamente los datos públicos de una cuenta de TikTok y los guarda
+en JSON y CSV.
+
+**¿Por qué Playwright y no Requests o BeautifulSoup?**
+Porque TikTok carga sus datos con JavaScript. Requests y BeautifulSoup solo ven
+el HTML inicial, casi vacío. Playwright usa un navegador real que ejecuta ese
+JavaScript, hace scroll y permite leer las respuestas de red.
+
+**¿De dónde salen los datos?**
+De dos lugares: del JSON que TikTok incrusta en la página y de las respuestas de
+red que la propia página solicita al cargar videos y comentarios.
+
+**¿Qué es el plan B?**
+Un método de respaldo (leer el HTML) por si falla el método principal.
+
+**¿Por qué no hay notificaciones?**
+Porque son privadas y solo existen dentro de una sesión iniciada. Por scraping
+de perfiles públicos no se puede acceder a ellas.
+
+**¿Qué problemas encontraste?**
+Bloqueos y captchas de TikTok, errores de instalación en Windows, y la
+necesidad de usar Chrome o Edge instalados al fallar la descarga del navegador
+de Playwright. Se resolvió con pausas aleatorias, planes de respaldo y la
+captura de depuración.
+
+**¿Qué es el Big Five y cómo lo calculaste?**
+Es un modelo de cinco rasgos de personalidad (apertura, responsabilidad, extraversión, amabilidad y
+neuroticismo). Se estima enviando la biografía y las descripciones de los videos a la API gratuita de
+Gemini, que devuelve un puntaje de 0 a 100 por rasgo con su evidencia y su nivel de confianza.
+
+**¿Por qué no usaste los comentarios para el Big Five?**
+Porque los escriben otras personas. El Big Five describe a quien escribe, así que se usan solo los
+textos del dueño de la cuenta.
+
+**¿Qué tan confiable es el resultado?**
+Es orientativo. Hay poco texto, puede estar escrito por un equipo de comunicación y lo genera una IA.
+Por eso el programa declara una confianza y las limitaciones.
+
+**¿Dónde guardas la clave de la API y por qué?**
+En una variable de entorno o en un archivo `.env` que está en `.gitignore`. Una clave en el código
+que se sube a GitHub puede ser usada por cualquiera.
+
+**¿Es legal?**
+El scraping de TikTok va contra sus términos de uso, por eso el proyecto es
+solo educativo y se limita a cuentas públicas con pocas peticiones.
+
+---
+
+## 15. Mejoras posibles
+
+- Analizar más videos o transcribir el audio para tener más texto en el Big Five.
+- Analizar el sentimiento de los comentarios (audiencia) en lugar de su personalidad.
 - Iniciar sesión con una cuenta propia para obtener más comentarios.
 - Descargar también los archivos de video.
 - Guardar los datos en una base de datos (SQLite).
