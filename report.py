@@ -97,6 +97,10 @@ CSS += """
 .thead span{color:var(--muted)}
 .texpl{margin:6px 0 0;color:var(--muted);font-size:14px}
 .aviso{border-left:4px solid var(--accent);background:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;color:var(--muted);margin-top:16px}
+.stack{display:flex;height:22px;border-radius:8px;overflow:hidden;margin:12px 0 6px}
+.stack div{height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
 """
 
 TRAIT_ORDER = [
@@ -106,22 +110,50 @@ TRAIT_ORDER = [
     ("agreeableness", "Amabilidad"),
     ("neuroticism", "Neuroticismo"),
 ]
+STACK_COLORS = ["#8b5cf6", "#06b6d4", "#fe2c55", "#f59e0b", "#64748b"]
 
 
 def _personality_card(p):
     """Tarjeta del análisis Big Five (solo si existe en los datos)."""
     if not p:
         return ""
+
+    # Porcentajes que suman 100 (si el JSON es antiguo, se calculan aquí).
+    pcts = p.get("percentages")
+    if not pcts:
+        try:
+            from personality import to_percentages
+            traits = p.get("traits") or {}
+            pcts = to_percentages({k: (traits.get(k) or {}).get("score") or 0 for k, _ in TRAIT_ORDER})
+        except Exception:
+            pcts = {}
+
+    segs, legend = "", ""
+    for (key, label), color in zip(TRAIT_ORDER, STACK_COLORS):
+        v = pcts.get(key)
+        if v is None:
+            continue
+        segs += ('<div style="width:' + str(v) + "%;background:" + color + '" title="'
+                 + _e(label) + ": " + str(v) + ' %"></div>')
+        legend += '<span><i style="background:' + color + '"></i>' + _e(label) + " " + str(v) + " %</span>"
+    stack_html = ""
+    if segs:
+        stack_html = ('<div class="stack">' + segs + '</div><div class="legend">' + legend + "</div>"
+                      '<div class="legend" style="margin-top:4px"><span><b>Total: '
+                      + str(sum(pcts.values())) + " %</b></span></div>")
+
     rows = ""
     for key, label in TRAIT_ORDER:
         t = (p.get("traits") or {}).get(key) or {}
         score = t.get("score")
         pct = score if isinstance(score, (int, float)) else 0
+        share = pcts.get(key)
+        share_txt = " · " + str(share) + " % del perfil" if share is not None else ""
         ev = "".join("<li>" + _e(x) + "</li>" for x in t.get("evidence") or [])
         ev_html = '<ul class="notes">' + ev + "</ul>" if ev else ""
         rows += (
             '<div class="trait"><div class="thead"><b>' + label + "</b>"
-            "<span>" + _n(score) + "/100 · " + _e(t.get("level")) + "</span></div>"
+            "<span>" + _n(score) + "/100 · " + _e(t.get("level")) + share_txt + "</span></div>"
             '<div class="track"><div class="fill" style="width:' + str(pct) + '%"></div></div>'
             '<p class="texpl">' + _e(t.get("explanation")) + "</p>" + ev_html + "</div>"
         )
@@ -129,12 +161,13 @@ def _personality_card(p):
     limits_html = '<ul class="notes">' + limits + "</ul>" if limits else ""
     return (
         '<div class="card"><h2>Perfil Big Five (estimación)</h2>'
-        "<p>" + _e(p.get("summary")) + "</p>" + rows +
+        "<p>" + _e(p.get("summary")) + "</p>" + stack_html + rows +
         '<div class="aviso"><b>Confianza: ' + _e(p.get("confidence")) + "</b> · textos analizados: "
         + _n(p.get("texts_used")) + " · palabras: " + _n(p.get("words_used")) +
         " · modelo: " + _e(p.get("model")) + "<br>Estimación orientativa generada por IA a partir de "
         "la biografía y las descripciones públicas. Refleja la imagen pública de la cuenta, no es un "
-        "test psicológico ni un diagnóstico." + limits_html + "</div></div>"
+        "test psicológico ni un diagnóstico. La barra superior muestra la composición del perfil "
+        "(suma 100 %); cada rasgo también conserva su puntaje original de 0 a 100." + limits_html + "</div></div>"
     )
 
 

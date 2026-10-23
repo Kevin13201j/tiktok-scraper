@@ -19,3 +19,9 @@ data/*/
 Thumbs.db
 .vscode/
 .idea/
+
+# PRIVADO: clave de la API (NUNCA subir)
+.env
+
+# Streamlit (claves locales)
+.streamlit/secrets.toml

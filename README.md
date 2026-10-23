@@ -17,11 +17,12 @@ de TikTok y los guarda en archivos **JSON** y **CSV**.
 8. [Cómo funciona por dentro](#8-cómo-funciona-por-dentro)
 9. [Explicación de cada archivo](#9-explicación-de-cada-archivo)
 10. [Análisis Big Five (extensión)](#10-análisis-big-five-extensión)
-11. [Limitaciones](#11-limitaciones)
-12. [Solución de problemas](#12-solución-de-problemas)
-13. [Aviso legal y ético](#13-aviso-legal-y-ético)
-14. [Guía rápida para la exposición](#14-guía-rápida-para-la-exposición)
-15. [Mejoras posibles](#15-mejoras-posibles)
+11. [Producto: Afinador de voz de marca](#11-producto-afinador-de-voz-de-marca)
+12. [Limitaciones](#12-limitaciones)
+13. [Solución de problemas](#13-solución-de-problemas)
+14. [Aviso legal y ético](#14-aviso-legal-y-ético)
+15. [Guía rápida para la exposición](#15-guía-rápida-para-la-exposición)
+16. [Mejoras posibles](#16-mejoras-posibles)
 
 ---
 
@@ -45,8 +46,8 @@ archivos que se pueden abrir con Excel o analizar con otros programas.
 | Likes totales y cantidad de videos | Sí | Datos extra del perfil |
 | Últimos 10 TikToks | Sí | Enlace, descripción, fecha, duración |
 | Vistas, likes, comentarios y compartidos de cada video | Sí | Se leen de la página de cada video |
-| Comentarios de cada video | Parcial | Depende de lo que TikTok cargue (ver sección 11) |
-| **Notificaciones** | **No** | Son privadas (ver sección 11) |
+| Comentarios de cada video | Parcial | Depende de lo que TikTok cargue (ver sección 12) |
+| **Notificaciones** | **No** | Son privadas (ver sección 12) |
 
 ---
 
@@ -74,7 +75,10 @@ tiktok-scraper/
 ├── scraper.py         # Lógica del scraping con Playwright
 ├── models.py          # Estructura de los datos (Profile, Video, Comment)
 ├── report.py          # Genera el reporte visual reporte.html
-├── personality.py     # Análisis Big Five con la API gratuita de Gemini
+├── personality.py     # Motor Big Five con la API gratuita de Gemini (+ porcentajes que suman 100)
+├── brand_voice.py     # Lógica de negocio del producto "Afinador de voz de marca"
+├── app.py             # Interfaz web del producto (Streamlit)
+├── test_brand_voice.py# Pruebas automáticas de la lógica
 ├── .env.example       # Ejemplo para guardar la clave (la real va en .env, NO se sube)
 ├── requirements.txt   # Dependencias (solo playwright)
 ├── README.md          # Este documento
@@ -392,6 +396,16 @@ modelos disponibles y prueba hasta 4. Si quieres fijar uno, define `GEMINI_MODEL
 $env:GEMINI_MODEL="nombre-del-modelo"
 ```
 
+### Porcentajes que suman 100 %
+Además del puntaje de cada rasgo (0 a 100), el programa calcula la **composición del perfil**:
+cada puntaje dividido entre la suma de los cinco, expresado en porcentaje, con los decimales
+repartidos (método del "mayor resto") para que el total sea exactamente **100 %**.
+
+Ejemplo: puntajes 62, 81, 70, 75 y 30 (suman 318) → 20 %, 25 %, 22 %, 24 % y 9 % (suman 100).
+
+> Los rasgos Big Five son escalas independientes, no partes de un total. Por eso se conservan
+> **ambos** valores: el puntaje original y el porcentaje de composición. Está en `to_percentages()`.
+
 ### Ejemplo de resultado (en `profile.json`)
 ```json
 "personality": {
@@ -421,7 +435,85 @@ $env:GEMINI_MODEL="nombre-del-modelo"
 
 ---
 
-## 11. Limitaciones
+## 11. Producto: Afinador de voz de marca
+
+### La idea de negocio
+Una herramienta para **pymes y agencias** que publican contenido en redes. El cliente pega los
+textos que publica (descripciones, captions, guiones) y elige la voz que quiere transmitir
+(por ejemplo "cercana y divertida"). El sistema mide cómo suena realmente el contenido, marca los
+textos que se salen de la voz, propone reescrituras y genera una guía de estilo.
+
+**Problema que resuelve:** cuando varias personas escriben para una misma marca, el tono cambia de un
+texto a otro y se pierde la identidad.
+
+**Por qué es viable:** el cliente entrega sus propios textos, así que no hace falta scraping ni se
+perfila a ninguna persona. Se evitan los problemas con los términos de TikTok y casi todos los de
+privacidad.
+
+### Modelo de ingresos (precios de referencia supuestos)
+
+| Plan | Para quién | Incluye | Precio de referencia |
+|---|---|---|---|
+| Gratis | Quien quiere probar | 3 análisis al mes | $0 |
+| Equipo | Pymes con 1 a 3 personas en redes | Análisis ilimitados, reescritura, guía de estilo | $29 a $49 al mes |
+| Agencia | Agencias con varias marcas | Hasta 10 marcas, reportes con su logo, comparación | $99 a $249 al mes |
+| A medida | Empresas medianas | Integraciones y soporte | Cotización |
+
+### Cómo funciona la lógica (`brand_voice.py`)
+1. **Entrada:** textos separados por una línea en blanco (`clean_texts`, máx. 15 de 700 caracteres).
+2. **Análisis del tono:** la IA estima, para cada texto, cuánto expresa cada rasgo Big Five en su
+   **tono** (no en la persona).
+3. **Porcentajes que suman 100:** los puntajes se convierten en una distribución (`to_percentages`).
+4. **Alineación con la voz objetivo:**
+
+   ```
+   alineación = 100 - 0,5 × suma( |% actual - % objetivo| de los 5 rasgos )
+   ```
+   100 % significa voz idéntica a la objetivo; 0 %, totalmente distinta. Se calcula en código, no la
+   inventa la IA, así que es repetible y fácil de explicar.
+5. **Alerta:** los textos con alineación menor al umbral (80 % por defecto) quedan marcados.
+6. **Propuestas:** una segunda consulta a la IA reescribe solo los textos marcados y genera una guía de
+   estilo (tono, hábitos recomendados y cosas por evitar).
+7. **Salida:** gráfico "tu voz vs voz objetivo", diagnóstico por rasgo (sobra, falta o en línea),
+   análisis por texto e informe descargable (Markdown y JSON).
+
+### Cómo ejecutarlo
+```bash
+python -m pip install -r requirements.txt
+streamlit run app.py
+```
+Se abre en el navegador (normalmente `http://localhost:8501`). Pega la clave de Gemini en la barra
+lateral o defínela en `.env` / `GEMINI_API_KEY`.
+
+### Pruebas automáticas
+```bash
+python -m unittest -v
+```
+Verifican, sin internet ni clave, que los porcentajes siempre suman 100, que la alineación va de
+0 a 100, que se marca el texto fuera de voz, que se rechaza una voz objetivo que no suma 100 y que las
+reescrituras solo se aplican a los textos marcados. La IA se reemplaza por una respuesta simulada.
+
+### Qué haría falta para vender el producto
+- **Clave en el servidor:** en un producto real la clave de la IA no se pide al cliente.
+- **Plan de pago de la API de IA:** el uso gratuito tiene límites bajos y, según la documentación de Google,
+  puede servir para mejorar sus productos. Con textos confidenciales de clientes eso no es aceptable.
+- **Cuentas de usuario, historial y cobro** (suscripciones).
+- **Política de privacidad** y revisar con un abogado la ley de protección de datos de Ecuador.
+- **Validar con clientes reales:** probar con textos de 5 a 10 negocios y comprobar que el resultado les
+  sirve para decidir.
+- **Revisar la competencia:** existen herramientas de voz de marca; la ventaja posible es el español
+  latinoamericano, el precio y el enfoque en pymes.
+
+### Límites del método
+- El Big Five se creó para describir **personas**. Aplicarlo al **tono de un texto** es un método
+  heurístico de marketing, no un test psicológico validado. Preséntalo como "perfil de tono".
+- Con pocos textos el resultado es poco fiable; la app avisa cuando hay menos de 3.
+- La IA puede equivocarse con ironía, jerga local o emojis. Las reescrituras deben revisarse antes de
+  publicar.
+
+---
+
+## 12. Limitaciones
 
 - **Notificaciones: no se pueden obtener.** Son privadas, pertenecen a una
   sesión iniciada y TikTok no las muestra en perfiles públicos. El campo
@@ -439,7 +531,7 @@ $env:GEMINI_MODEL="nombre-del-modelo"
 
 ---
 
-## 12. Solución de problemas
+## 13. Solución de problemas
 
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
@@ -454,7 +546,7 @@ $env:GEMINI_MODEL="nombre-del-modelo"
 
 ---
 
-## 13. Aviso legal y ético
+## 14. Aviso legal y ético
 
 - Los términos de uso de TikTok restringen el scraping automatizado.
 - Usa este proyecto **solo con fines educativos**, con **cuentas públicas** y
@@ -466,7 +558,7 @@ $env:GEMINI_MODEL="nombre-del-modelo"
 
 ---
 
-## 14. Guía rápida para la exposición
+## 15. Guía rápida para la exposición
 
 **¿Qué hace el proyecto?**
 Extrae automáticamente los datos públicos de una cuenta de TikTok y los guarda
@@ -511,13 +603,29 @@ Por eso el programa declara una confianza y las limitaciones.
 En una variable de entorno o en un archivo `.env` que está en `.gitignore`. Una clave en el código
 que se sube a GitHub puede ser usada por cualquiera.
 
+**¿Cuál es el modelo de negocio?**
+Una suscripción mensual para pymes y agencias: el cliente pega sus textos, elige la voz de marca
+que busca y recibe el análisis, las alertas de textos fuera de voz, reescrituras y una guía de estilo.
+
+**¿Cómo se calcula la alineación con la voz objetivo?**
+Se comparan dos distribuciones de porcentajes (la del contenido y la objetivo): 100 menos la mitad de
+la suma de las diferencias absolutas por rasgo. Es una fórmula simple, hecha en código y repetible.
+
+**¿Por qué los porcentajes suman 100 %?**
+Para poder comparar el contenido con la voz objetivo como dos distribuciones. Se conserva también el
+puntaje original de cada rasgo porque los rasgos Big Five son escalas independientes.
+
+**¿Cómo sabes que tu lógica funciona sin depender de la IA?**
+Con pruebas automáticas (`python -m unittest`) que reemplazan la IA por una respuesta simulada y
+verifican los cálculos, las validaciones y las reglas del producto.
+
 **¿Es legal?**
 El scraping de TikTok va contra sus términos de uso, por eso el proyecto es
 solo educativo y se limita a cuentas públicas con pocas peticiones.
 
 ---
 
-## 15. Mejoras posibles
+## 16. Mejoras posibles
 
 - Analizar más videos o transcribir el audio para tener más texto en el Big Five.
 - Analizar el sentimiento de los comentarios (audiencia) en lugar de su personalidad.
